@@ -48,3 +48,5 @@ cl/settings/google_auth.json
 
 .vscode/*
 /.history
+
+bulk-data/*
