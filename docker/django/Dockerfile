@@ -37,7 +37,7 @@ FROM build-base AS python-base
 WORKDIR /opt/courtlistener
 
 # uv install dependencies
-COPY pyproject.toml uv.lock .
+COPY pyproject.toml uv.lock ./
 # https://docs.astral.sh/uv/guides/integration/docker/#caching
 ENV \
     UV_COMPILE_BYTECODE=1 \
