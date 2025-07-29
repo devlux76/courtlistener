@@ -6,7 +6,13 @@ from django.contrib.messages import constants as message_constants
 from .project.testing import TESTING
 from .third_party.redis import REDIS_DATABASES, REDIS_HOST, REDIS_PORT
 
+import os
+
+# Explicitly load .env.dev in development mode
 env = environ.FileAwareEnv()
+DEVELOPMENT = os.environ.get("DEVELOPMENT", "on").lower() in ("on", "true", "1")
+if DEVELOPMENT:
+    env.read_env(".env.dev")
 
 SECRET_KEY = env("SECRET_KEY", default="THIS-is-a-Secret")
 
