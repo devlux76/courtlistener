@@ -4,9 +4,9 @@ set -e
 
 usage() {
     echo "Usage: $0 [options]"
-    echo "Runs fetch_bulk_data.py inside the Docker container."
+    echo "Runs import_bulk_data.py inside the Docker container."
     echo ""
-    echo "Options are passed directly to fetch_bulk_data.py."
+    echo "Options are passed directly to import_bulk_data.py."
     echo ""
     echo "Example:"
     echo "  $0 --arg1 value1 --arg2 value2"
@@ -31,10 +31,10 @@ docker run --rm \
     -v "$SCRIPT_DIR":/app/scripts \
     -w /app \
     python:3 \
-    python scripts/fetch_bulk_data.py "$@"
+    python scripts/import_bulk_data.py "$@"
 
 EXIT_CODE=$?
 if [[ $EXIT_CODE -ne 0 ]]; then
-    echo "fetch_bulk_data.py failed with exit code $EXIT_CODE"
+    echo "import_bulk_data.py failed with exit code $EXIT_CODE"
     exit $EXIT_CODE
 fi

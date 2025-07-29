@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-# Install system dependencies and Chromium dependencies
+# Install system dependencies, PostgreSQL client, and Chromium dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         wget \
@@ -9,6 +9,8 @@ RUN apt-get update && \
         jq \
         unzip \
         curl \
+        gcc \
+        libpq-dev \
         fonts-liberation \
         libasound2 \
         libatk-bridge2.0-0 \
@@ -43,8 +45,20 @@ RUN apt-get update && \
     ln -sf /usr/lib/chromium/chromedriver /usr/bin/chromedriver && \
     rm -rf /var/lib/apt/lists/*
 
-# Install selenium and requests
-RUN pip install selenium requests
+# Copy requirements and install all Python dependencies
+COPY requirements.txt /workspace/requirements.txt
+RUN pip install --no-cache-dir -r /workspace/requirements.txt
+
+# Copy fetch and import scripts, and shell entrypoints
+COPY ../../scripts/fetch_bulk_data.py /workspace/fetch_bulk_data.py
+COPY ../../scripts/import_bulk_data.py /workspace/import_bulk_data.py
+COPY ../../scripts/fetch_bulk_data.sh /workspace/fetch_bulk_data.sh
+COPY ../../scripts/import_bulk_data.sh /workspace/import_bulk_data.sh
+
+# Add entrypoint scripts for fetch and import
+COPY entrypoint-fetch.sh /workspace/entrypoint-fetch.sh
+COPY entrypoint-import.sh /workspace/entrypoint-import.sh
+RUN chmod +x /workspace/entrypoint-fetch.sh /workspace/entrypoint-import.sh /workspace/fetch_bulk_data.sh /workspace/import_bulk_data.sh
 
 # Add a non-root user for security
 RUN useradd -ms /bin/bash bulkuser
@@ -52,4 +66,11 @@ USER bulkuser
 
 WORKDIR /workspace
 
+# Environment variables for PostgreSQL connection (can be overridden at runtime)
+ENV BULK_DB_HOST=localhost
+ENV BULK_DB_USER=postgres
+ENV BULK_DB_PASSWORD=postgres
+ENV BULK_DB_NAME=courtlistener
+
+# Default entrypoint (can be overridden with --entrypoint)
 ENTRYPOINT ["/bin/bash"]
