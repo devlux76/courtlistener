@@ -40,19 +40,26 @@ The `fetch_bulk_data.py` script has been enhanced with the following improvement
 ### 2. Data Fetching
 - Run the fetch process in a container with `/srv/bulk-data` mounted:
   ```bash
-  docker run --rm -v /srv/bulk-data:/srv/bulk-data -w /workspace bulkdata-fetcher /workspace/entrypoint-fetch.sh
+  # Use the same image as step 3 for consistency:
+  docker compose run --rm cl-bulk-data /workspace/entrypoint-fetch.sh
   ```
 - This downloads and extracts files in size order while managing disk space
 
+---
+**IMPORTANT FINDING (2025-07-30):**
+Running `docker compose run` for the import operation will start all dependent services, even if they were previously stopped. This can unintentionally restart every service, defeating the purpose of stopping non-essential containers. To avoid this, ensure all non-essential services are stopped again after running the import, or consider using `docker compose stop` for all services except the database and bulk import container before and after the import step.
+
+**Action Required:** Update this plan as you discover issues during execution to prevent repeated mistakes.
+---
 ### 3. Data Import
 - Stop non-essential containers:
   ```bash
   cd docker/courtlistener
   docker compose stop cl-django cl-celery cl-webpack cl-tailwind-reload cl-selenium cl-webhook-sentry cl-es
   ```
-- Run the import operation:
+- Run the import operation (using the same image and entrypoint style as step 2):
   ```bash
-  docker compose run --rm cl-bulk-data bash scripts/import_bulk_data.sh --db-host cl-postgresql --db-user postgres --db-password postgres
+  docker compose run --rm cl-bulk-data /workspace/entrypoint-import.sh --db-host cl-postgresql --db-user postgres --db-password postgres
   ```
 
 ### 4. Post-Import Verification
@@ -167,6 +174,13 @@ def get_available_disk_space(directory):
 
 ## Troubleshooting
 
+- **Image/Tag Mismatch**: Ensure both step 2 and step 3 use the same image (`cl-bulk-data` from Compose). If you change the Dockerfile or scripts, always rebuild with:
+  ```bash
+  cd docker/courtlistener
+  docker compose build cl-bulk-data
+  ```
+- **Architecture Issues**: If running on non-amd64 hardware, adjust the Dockerfile base image to match your architecture (e.g., use an ARM-compatible Python image).
+- **Build Context**: The Compose build context for `cl-bulk-data` is the project root. The Dockerfile is at `docker/bulk-data/Dockerfile`.
 - **Disk Space Issues**: Clean up old files or increase disk allocation
 - **Container Failures**: Check logs and restart containers
 - **Import Errors**: Review import script logs and database state

@@ -149,10 +149,11 @@ services:
   cl-bulk-data:
     container_name: cl-bulk-data
     build:
-      context: ../bulk-data
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: docker/bulk-data/Dockerfile
     volumes:
       - ../../:/workspace
+      - /srv/bulk-data:/srv/bulk-data
     networks:
       - cl_net_overlay
     depends_on:

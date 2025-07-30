@@ -11,6 +11,7 @@ RUN apt-get update && \
         curl \
         gcc \
         libpq-dev \
+        postgresql-client \
         fonts-liberation \
         libasound2 \
         libatk-bridge2.0-0 \
@@ -50,10 +51,10 @@ COPY docker/bulk-data/requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
 # Copy fetch and import scripts, and shell entrypoints
-COPY ../../scripts/fetch_bulk_data.py /workspace/fetch_bulk_data.py
-COPY ../../scripts/import_bulk_data.py /workspace/import_bulk_data.py
-COPY ../../scripts/fetch_bulk_data.sh /workspace/fetch_bulk_data.sh
-COPY ../../scripts/import_bulk_data.sh /workspace/import_bulk_data.sh
+COPY scripts/fetch_bulk_data.py /workspace/fetch_bulk_data.py
+COPY scripts/import_bulk_data.py /workspace/import_bulk_data.py
+COPY scripts/fetch_bulk_data.sh /workspace/fetch_bulk_data.sh
+COPY scripts/import_bulk_data.sh /workspace/import_bulk_data.sh
 
 # Add entrypoint scripts for fetch and import
 COPY docker/bulk-data/entrypoint-fetch.sh /workspace/entrypoint-fetch.sh
