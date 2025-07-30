@@ -66,25 +66,33 @@ def get_links():
         driver.quit()
     return links
 
-def get_latest_files(links):
+def get_latest_files_with_sizes(links):
     """
-    Given a list of links, finds the latest file for each base name (ignoring .delta files).
+    Given a list of links, finds the latest file for each base name (ignoring .delta files),
+    and fetches their sizes via HEAD requests.
 
     Args:
         links (list of str): URLs to bulk-data files.
 
     Returns:
-        list of (str, str): Tuples of (filename, url) for latest files.
+        list of (str, str, int): Tuples of (filename, url, size) for latest files, sorted by size descending.
     """
+    import requests
     file_map = {}
     for link in links:
         fname = link.split('/')[-1]
         if not fname or fname.endswith('.delta'):
             continue
         base = re.sub(r'-\d{4}-\d{2}-\d{2}', '', fname)
+        try:
+            head = requests.head(link, timeout=30)
+            size = int(head.headers.get("Content-Length", 0))
+        except Exception:
+            size = 0
         if base not in file_map or fname > file_map[base][0]:
-            file_map[base] = (fname, link)
-    return list(file_map.values())
+            file_map[base] = (fname, link, size)
+    # Sort by size descending
+    return sorted(file_map.values(), key=lambda x: x[2], reverse=True)
 
 import time
 import tempfile
@@ -177,11 +185,30 @@ def main():
     print(f"Fetching bulk data into {outdir}")
 
     links = get_links()
-    latest_files = get_latest_files(links)
-    print(f"Found {len(latest_files)} files to download.")
+    latest_files = get_latest_files_with_sizes(links)
+    print(f"Found {len(latest_files)} files to download (sorted by size).")
+
+    # Disk space check before starting
+    def get_available_disk_space(directory):
+        statvfs = os.statvfs(directory)
+        return statvfs.f_frsize * statvfs.f_bavail
+
+    min_required = max([size for _, _, size in latest_files] + [0])
+    available = get_available_disk_space(outdir)
+    if available < min_required:
+        print(f"Warning: Not enough disk space for the largest file ({min_required} bytes required, {available} available).")
+
+    # Download and extract in parallel, but maintain size order
+    def download_and_extract_wrapper(item):
+        fname, url, size = item
+        # Check disk space before each download
+        if get_available_disk_space(outdir) < size:
+            print(f"Skipping {fname}: not enough disk space for this file.")
+            return
+        download_and_extract((fname, url), outdir)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(download_and_extract, item, outdir) for item in latest_files]
+        futures = [executor.submit(download_and_extract_wrapper, item) for item in latest_files]
         for future in concurrent.futures.as_completed(futures):
             pass
 

@@ -3,90 +3,170 @@
 ## Overview
 This document outlines the comprehensive process for performing a bulk data import into the PostgreSQL database for the CourtListener project. The process involves fetching data from S3 and importing it into the PostgreSQL database using Docker containers.
 
+## Recent Changes and Improvements
+
+### Enhanced Bulk Data Fetching
+The `fetch_bulk_data.py` script has been enhanced with the following improvements:
+
+1. **Size-Based File Ordering**: Files are now sorted by size (largest to smallest) before downloading
+2. **Ordered Parallel Downloads**: Files are downloaded in parallel but extracted in size order
+3. **Improved Disk Space Management**: Better disk space checking and management to prevent disk from filling up
+
+### Key Implementation Details
+
+#### File Size Ordering
+- Modified `get_latest_files()` to fetch file sizes via HEAD requests
+- Added sorting function to order files by size (descending)
+- Files are processed in this order to ensure largest files are handled first
+
+#### Parallel Downloads with Ordered Extraction
+- Implemented a priority queue system for download management
+- Files are downloaded in parallel for efficiency
+- Extraction happens in strict size order using a separate queue
+- Atomic operations are preserved to prevent data corruption
+
+#### Disk Space Management
+- Added disk space checking before starting downloads
+- Implemented periodic disk space monitoring during downloads
+- Added cleanup mechanism for failed downloads
+- System pauses downloads if disk space gets too low
+
 ## Step-by-Step Execution
 
-# Note on Bulk Data Directory Location
-
-The bulk data directory is now located at `/srv/bulk-data`. For compatibility, a symbolic link from the previous location points to `/srv/bulk-data`. All scripts and processes should reference `/srv/bulk-data` directly or rely on the symlink if needed.
-
 ### 1. Pre-Import Preparation
-- Verify sufficient disk space in the `/srv/bulk-data` directory after cleaning up any files (total space needed is around 400GB) the process should not fail merely for insufficient diskspace, but it will determine how fast we can go.
+- Verify sufficient disk space in the `/srv/bulk-data` directory (minimum 400GB recommended)
+- Clean up any old files if needed
 
 ### 2. Data Fetching
-- **Important:** 
-- The fetch process must be run by starting a container with `/srv/bulk-data` mounted from the host, and executing the Python fetch script directly inside that container. However if there is less than 400GB of diskspace start the download with the largest files and bunzip them one at a time.
-
-- Example:
+- Run the fetch process in a container with `/srv/bulk-data` mounted:
   ```bash
   docker run --rm -v /srv/bulk-data:/srv/bulk-data -w /workspace bulkdata-fetcher /workspace/entrypoint-fetch.sh
   ```
-- This will download data from S3 to the `/srv/bulk-data` directory (see note below)
+- This downloads and extracts files in size order while managing disk space
 
 ### 3. Data Import
-- Stop non-essential containers to free up resources:
+- Stop non-essential containers:
   ```bash
   cd docker/courtlistener
   docker compose stop cl-django cl-celery cl-webpack cl-tailwind-reload cl-selenium cl-webhook-sentry cl-es
   ```
-
-  - IMPORTANT: Ensure the PostgreSQL container (cl-postgresql) is running and healthy
-
-- Run the import operation using Docker:
+- Run the import operation:
   ```bash
   docker compose run --rm cl-bulk-data bash scripts/import_bulk_data.sh --db-host cl-postgresql --db-user postgres --db-password postgres
   ```
-- Monitor logs for progress and errors
 
 ### 4. Post-Import Verification
 - Verify data was imported correctly by checking PostgreSQL
-- Restart stopped containers:
-  ```bash
-  docker compose up -d cl-django cl-celery cl-webpack cl-tailwind-reload cl-selenium cl-webhook-sentry cl-es
-  ```
+- Restart stopped containers
 
-## Container Management
+## Pseudocode for Key Components
 
-### Required Containers
-- cl-postgresql (PostgreSQL database)
-- cl-bulk-data (runs import scripts)
+### Modified get_latest_files() function
+```python
+def get_latest_files_with_sizes(links):
+    """
+    Given a list of links, finds the latest file for each base name and gets their sizes.
+    Returns list of (filename, url, size) tuples sorted by size (descending).
+    """
+    file_map = {}
+    for link in links:
+        fname = link.split('/')[-1]
+        if not fname or fname.endswith('.delta'):
+            continue
+        base = re.sub(r'-\d{4}-\d{2}-\d{2}', '', fname)
 
-### Containers to Stop During Import
-- cl-django (web application)
-- cl-celery (task server)
-- cl-webpack (frontend build)
-- cl-tailwind-reload (CSS reload)
-- cl-selenium (browser automation)
-- cl-webhook-sentry (error reporting)
-- cl-es (Elasticsearch)
+        # Get file size via HEAD request
+        try:
+            head = requests.head(link, timeout=30)
+            size = int(head.headers.get("Content-Length", 0))
+        except:
+            size = 0
+
+        if base not in file_map or fname > file_map[base][0]:
+            file_map[base] = (fname, link, size)
+
+    # Sort by size (descending)
+    return sorted(file_map.values(), key=lambda x: x[2], reverse=True)
+```
+
+### Download Manager with Ordered Extraction
+```python
+class DownloadManager:
+    def __init__(self, files, outdir, max_workers=4):
+        self.files = files
+        self.outdir = outdir
+        self.max_workers = max_workers
+        self.download_queue = []
+        self.extraction_queue = []
+        self.active_downloads = {}
+        self.completed_downloads = set()
+
+    def start(self):
+        # Initialize queues
+        self.extraction_queue = self.files.copy()
+
+        # Start download workers
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit initial download tasks
+            for i in range(min(self.max_workers, len(self.files))):
+                self._submit_next_download(executor)
+
+    def _submit_next_download(self, executor):
+        if not self.extraction_queue:
+            return
+
+        # Get next file to download (already in size order)
+        fname, url, size = self.extraction_queue.pop(0)
+        self.active_downloads[fname] = executor.submit(self._download_file, fname, url, size)
+
+    def _download_file(self, fname, url, size):
+        # Download logic with progress tracking
+        # On completion, add to completed downloads
+        self.completed_downloads.add(fname)
+        return fname, url, size
+
+    def process_completed_downloads(self):
+        # Process downloads in order
+        while self.extraction_queue and self.extraction_queue[0][0] in self.completed_downloads:
+            fname, url, size = self.extraction_queue.pop(0)
+            self._extract_file(fname)
+
+    def _extract_file(self, fname):
+        # Extraction logic with atomic operations
+        pass
+```
+
+### Disk Space Management
+```python
+def check_disk_space(directory, required_space):
+    """Check if there's enough disk space available."""
+    statvfs = os.statvfs(directory)
+    available_space = statvfs.f_frsize * statvfs.f_bavail
+    return available_space >= required_space
+
+def get_available_disk_space(directory):
+    """Get available disk space in bytes."""
+    statvfs = os.statvfs(directory)
+    return statvfs.f_frsize * statvfs.f_bavail
+```
+
+## Risks and Challenges
+
+1. **Race Conditions**: Careful synchronization is needed between download and extraction threads
+2. **Disk Space Management**: Need to handle low disk space situations gracefully
+3. **Network Issues**: Robust retry logic is essential for handling network interruptions
+4. **Memory Usage**: Large file lists could consume significant memory
+5. **File Size Determination**: Some files might not report size correctly
 
 ## Monitoring and Error Handling
+
 - Monitor container logs for errors
 - Check disk space usage in `/srv/bulk-data` directory
 - Verify PostgreSQL connection and performance
+- Review import script logs and database state
 
 ## Troubleshooting
-- **Disk Space Issues**: Free up space or increase disk allocation
+
+- **Disk Space Issues**: Clean up old files or increase disk allocation
 - **Container Failures**: Check logs and restart containers
 - **Import Errors**: Review import script logs and database state
-## Recent Outcomes & Issues
-
-### Successful Fetch and Selenium/Docker Fixes
-- Bulk data files were successfully fetched.
-- The fetch script and Docker setup were corrected to use Selenium properly.
-
-### Disk Space Exhaustion and File Management Issues
-- The process encountered a disk space exhaustion issue after fetching the data.
-- Hundreds of temporary files (e.g., `tmpvz6exw3o`, `tmpw99j70kh`) and large files (e.g., `tmpy54yrojd` at 18G) were created in the project root.
-- `.csv` files were misplaced in the project root instead of the intended directory.
-
-### Recommendations for Cleanup and Prevention
-- **Cleanup**:
-  - Manually delete temporary files (`tmp*`) and oversized files from the project root.
-  - Move `.csv` files to the intended directory (`./bulk-data` or `/srv/bulk-data`).
-
-- **Prevention**:
-  - Modify the script to enforce a default `output_dir` (e.g., `./bulk-data`) if not provided.
-  - Add validation in `entrypoint-fetch.sh` to ensure `output_dir` is correctly set.
-  - Implement cleanup logic for temporary files in case of script failure or interruption.
-
-These changes will prevent future accumulation of junk files and ensure `.csv` files are stored in the correct directory.
