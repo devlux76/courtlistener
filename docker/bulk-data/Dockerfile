@@ -46,7 +46,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install all Python dependencies
-COPY requirements.txt /workspace/requirements.txt
+COPY docker/bulk-data/requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
 # Copy fetch and import scripts, and shell entrypoints
@@ -56,8 +56,8 @@ COPY ../../scripts/fetch_bulk_data.sh /workspace/fetch_bulk_data.sh
 COPY ../../scripts/import_bulk_data.sh /workspace/import_bulk_data.sh
 
 # Add entrypoint scripts for fetch and import
-COPY entrypoint-fetch.sh /workspace/entrypoint-fetch.sh
-COPY entrypoint-import.sh /workspace/entrypoint-import.sh
+COPY docker/bulk-data/entrypoint-fetch.sh /workspace/entrypoint-fetch.sh
+COPY docker/bulk-data/entrypoint-import.sh /workspace/entrypoint-import.sh
 RUN chmod +x /workspace/entrypoint-fetch.sh /workspace/entrypoint-import.sh /workspace/fetch_bulk_data.sh /workspace/import_bulk_data.sh
 
 # Add a non-root user for security

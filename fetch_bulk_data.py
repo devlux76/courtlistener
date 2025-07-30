@@ -94,11 +94,9 @@ def download_and_extract(item, outdir, max_retries=5):
     """
     Downloads a file from the given URL with retries, validates file size, shows progress,
     writes atomically, and extracts if .bz2.
-    All downloads and temporary files are stored in /srv/bulk-data.
-
     Args:
         item (tuple): (filename, url)
-        outdir (str): Output directory (should be /srv/bulk-data)
+        outdir (str): Output directory
         max_retries (int): Number of download attempts before giving up
     """
     fname, url = item
@@ -166,13 +164,12 @@ def download_and_extract(item, outdir, max_retries=5):
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Fetch and extract latest bulk data files. All downloads and temporary files are stored in /srv/bulk-data."
-    )
+    parser = argparse.ArgumentParser(description="Fetch and extract latest bulk data files.")
+    parser.add_argument("output_dir", help="Directory to store downloaded files")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel downloads")
     args = parser.parse_args()
 
-    outdir = "/srv/bulk-data"
+    outdir = os.path.abspath(args.output_dir)
     os.makedirs(outdir, exist_ok=True)
     print(f"Fetching bulk data into {outdir}")
 
